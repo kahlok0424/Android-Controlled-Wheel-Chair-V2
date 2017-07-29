@@ -80,7 +80,7 @@ void setup() {
 
   WiFi.softAP(ssid, password,1,1);
   handling(&leftMotorInfo , &rightMotorInfo);
-  handleUturn(&leftMotorInfo , &rightMotorInfo);
+//  handleUturn(&leftMotorInfo , &rightMotorInfo);
   server.begin();
   IPAddress myIP=WiFi.softAPIP();
   Serial.println(myIP);
@@ -99,19 +99,21 @@ int TimerExpired(unsigned long duration ,unsigned long previous )
 
 void motorStep(MotorInfo *motorInfo)
 {
+  int index = getStepPeriodIndex(motorInfo);
+  static int counter =0;
   
-  if(TimerExpired(motorInfo->stepPeriod[motorInfo->index], motorInfo->prevTime))
+  if(TimerExpired(motorInfo->stepPeriod[index], motorInfo->prevTime))
   {
-    if(motorInfo->updated == 1)
-    {
-      motorInfo->index = (motorInfo->index + 1)&1;
-      motorInfo->updated = 0;
-    }
+  /*  if(counter++ > 10){
+      counter =0;
+      motorInfo->stepPeriod[index] = motorInfo->stepPeriod[index] + 10;
+    }*/
      digitalWrite(motorInfo->dirPin , motorInfo->dir);
      digitalWrite(motorInfo->motorControlPin,HIGH);
      digitalWrite(motorInfo->motorControlPin ,LOW);
      motorInfo->prevTime = micros();
      motorInfo-> steps ++ ;
+     Serial.println(motorInfo->stepPeriod[index]);
   } 
 }
 
@@ -142,7 +144,8 @@ int getStepPeriodIndex(MotorInfo *info)
 {
   if(info->updated == 1)
   {
-  info->index = (info->index +1) &1;
+  Serial.println("display here updaed = 1");
+  info->index = (info->index +1)&1;
   info->updated =0;
   }
   return info->index;
@@ -200,28 +203,20 @@ void handling(MotorInfo *leftMotor, MotorInfo *rightMotor){
       Serial.println("parseObject() failed");
       return;
     }
-    int whichmotor;
-    unsigned long delays,dire;
-    whichmotor = root["whichmotor"];
+    int whichMotor;
+    whichMotor = root["whichmotor"];
+    MotorInfo *info;
    
-   if(whichmotor == 1 )
-   {
-      if(leftMotor->updated == 0)
+     info = whichMotor == 1? leftMotor:rightMotor;
+   
+      if(info->updated == 0)
       {
-        leftMotor->stepPeriod[(leftMotor->index+1)&1] = root["delay"];
-        leftMotor->dir = root["direction"];
-        leftMotor->updated == 1;
+        info->stepPeriod[(info->index+1)&1] = root["delay"];
+        info->dir = root["direction"];
+        info->updated = 1;
+        Serial.println(info->stepPeriod[(info->index+1)&1]);
       }
-    }
-    else
-    {
-       if(rightMotor->updated == 0)
-       {
-         rightMotor->stepPeriod[(rightMotor->index+1)&1] = root["delay"];
-         rightMotor->dir = root["direction"];
-         rightMotor->updated == 1;
-       }
-     }  
+    
    //MainInfo->Speed = root["offset"];
    //MainInfo->Angle = root["degrees"];  
   });
@@ -230,7 +225,7 @@ void handling(MotorInfo *leftMotor, MotorInfo *rightMotor){
 void handleUturn(MotorInfo *leftMotor , MotorInfo *rightMotor){
    server.on("/uturn", [=](){
      leftMotor->steps = 0;
-     rightMotor->steps = 0;   
+     rightMotor->steps = 0; 
      Uturn(leftMotor ,rightMotor);
   });
   return;
