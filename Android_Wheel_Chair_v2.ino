@@ -15,6 +15,15 @@ ESP8266WebServer server(80);
 
 const char* ssid = "test123";
 const char* password =  "testing12345";
+int minVerbosity =0;
+
+#define updateIndex(x)    do {                              \
+                    if((x)->updated == 1)                   \
+                     {                                      \
+                       (x)->index  = ((x)->index +1)&1;     \
+                       (x)->updated =0;                     \
+                     }                                      \
+} while(0)
 
 typedef struct MotorInfo MotorInfo;
 struct  MotorInfo {
@@ -43,6 +52,7 @@ struct  AngleSpeed {
   float Angle;
   float previousAngle;
   float previousSpeed; 
+  int index;
 };
 
 AngleSpeed instruction ={
@@ -50,41 +60,40 @@ AngleSpeed instruction ={
   .Angle = 90.00 ,
   .previousAngle = 270,
   .previousSpeed = 0,
+  .index = 0,
 };
 
 void setup() {
-  Serial.begin(115200);
+//  Serial.begin(115200);
   pinMode(MOTOR_LEFT_STEP_PIN, OUTPUT); 
   pinMode(MOTOR_LEFT_DIR_PIN, OUTPUT);
   pinMode(MOTOR_RIGHT_STEP_PIN, OUTPUT); 
   pinMode(MOTOR_RIGHT_DIR_PIN, OUTPUT);
-  rightMotorInfo.stepPeriod[0] = -1,
-  rightMotorInfo.motorControlPin = MOTOR_RIGHT_STEP_PIN,
-  rightMotorInfo.pinState = LOW ,
-  rightMotorInfo.dirPin = MOTOR_RIGHT_DIR_PIN,
-  rightMotorInfo.dir = MOTOR_RIGHT_FOWARD,
-  rightMotorInfo.steps = 0,
-  rightMotorInfo.prevTime = 0,
-  rightMotorInfo.updated =0,
-  rightMotorInfo.index =0,
-
-  leftMotorInfo.stepPeriod[0] = -1,
-  leftMotorInfo.motorControlPin = MOTOR_LEFT_STEP_PIN,
-  leftMotorInfo.pinState = LOW ,
-  leftMotorInfo.dirPin = MOTOR_LEFT_DIR_PIN,
-  leftMotorInfo.dir = MOTOR_LEFT_FOWARD,
-  leftMotorInfo.steps = 0,
-  leftMotorInfo.prevTime = 0,
-  leftMotorInfo.updated =0,
-  leftMotorInfo.index =0,
+  rightMotorInfo.stepPeriod[0] = -1;
+  rightMotorInfo.motorControlPin = MOTOR_RIGHT_STEP_PIN;
+  rightMotorInfo.pinState = LOW;
+  rightMotorInfo.dirPin = MOTOR_RIGHT_DIR_PIN;
+  rightMotorInfo.dir = MOTOR_RIGHT_FOWARD;
+  rightMotorInfo.steps = 0;
+  rightMotorInfo.prevTime = 0;
+  rightMotorInfo.updated =0;
+  rightMotorInfo.index =0;
+  leftMotorInfo.stepPeriod[0] = -1;
+  leftMotorInfo.motorControlPin = MOTOR_LEFT_STEP_PIN;
+  leftMotorInfo.pinState = LOW;
+  leftMotorInfo.dirPin = MOTOR_LEFT_DIR_PIN;
+  leftMotorInfo.dir = MOTOR_LEFT_FOWARD;
+  leftMotorInfo.steps = 0;
+  leftMotorInfo.prevTime = 0;
+  leftMotorInfo.updated =0;
+  leftMotorInfo.index =0;
 
   WiFi.softAP(ssid, password,1,1);
   handling(&leftMotorInfo , &rightMotorInfo);
 //  handleUturn(&leftMotorInfo , &rightMotorInfo);
   server.begin();
   IPAddress myIP=WiFi.softAPIP();
-  Serial.println(myIP);
-//  delay(150);
+//  Serial.println(myIP);
 }
 
 int TimerExpired(unsigned long duration ,unsigned long previous )
@@ -99,28 +108,24 @@ int TimerExpired(unsigned long duration ,unsigned long previous )
 
 void motorStep(MotorInfo *motorInfo)
 {
-  int index = getStepPeriodIndex(motorInfo);
+  unsigned long stepPeriod = getStepPeriod(motorInfo);
   static int counter =0;
   
-  if(TimerExpired(motorInfo->stepPeriod[index], motorInfo->prevTime))
+  if(TimerExpired(stepPeriod, motorInfo->prevTime))
   {
-  /*  if(counter++ > 10){
-      counter =0;
-      motorInfo->stepPeriod[index] = motorInfo->stepPeriod[index] + 10;
-    }*/
      digitalWrite(motorInfo->dirPin , motorInfo->dir);
      digitalWrite(motorInfo->motorControlPin,HIGH);
      digitalWrite(motorInfo->motorControlPin ,LOW);
      motorInfo->prevTime = micros();
      motorInfo-> steps ++ ;
-     Serial.println(motorInfo->stepPeriod[index]);
+//     Serial.println(stepPeriod);
   } 
 }
 
 void Uturn(MotorInfo *leftInfo , MotorInfo *rightInfo)
 {
-    int index = getStepPeriodIndex(leftInfo);
-    int index2 = getStepPeriodIndex(rightInfo);
+    int index = getStepPeriod(leftInfo);
+    int index2 = getStepPeriod(rightInfo);
     leftInfo->dir = MOTOR_LEFT_FOWARD;
     leftInfo->stepPeriod[index] = 400;
     rightInfo->dir = MOTOR_RIGHT_BACKWARD;
@@ -134,22 +139,25 @@ void Uturn(MotorInfo *leftInfo , MotorInfo *rightInfo)
 
 void ForceStop(MotorInfo *leftInfo , MotorInfo *rightInfo)
 {
-  int index = getStepPeriodIndex(leftInfo);
-  int index2 = getStepPeriodIndex(rightInfo);
+  int index = getStepPeriod(leftInfo);
+  int index2 = getStepPeriod(rightInfo);
   leftInfo-> stepPeriod[index] = -1;
   rightInfo ->stepPeriod[index2] = -1;
 }
 
-int getStepPeriodIndex(MotorInfo *info)
+int getStepPeriod(MotorInfo *info)
 {
-  if(info->updated == 1)
+  updateIndex(info);
+  return info->stepPeriod[info->index];
+}
+
+void dump(char *str , int verbosity)
+{
+  if(minVerbosity < verbosity)
   {
-  Serial.println("display here updaed = 1");
-  info->index = (info->index +1)&1;
-  info->updated =0;
-  }
-  return info->index;
-  }
+    Serial.println(str);
+    }  
+}
 
 /*void Calculation(AngleSpeed *MainInfo , MotorInfo *leftMotor , MotorInfo *rightMotor)
 {
@@ -173,11 +181,11 @@ int getStepPeriodIndex(MotorInfo *info)
          rightMotor->dir = MOTOR_RIGHT_BACKWARD;
        }
       max_period = (6000/MainInfo->Speed);
-      leftMotor->delay = max_period * ( MainInfo->Angle/180);
-      rightMotor->delay = max_period - leftMotor->delay;
+      leftMotor->stepPeriod = max_period * ( MainInfo->Angle/180);
+      rightMotor->stepPeriod = max_period - leftMotor->stepPeriod;
    
-      Serial.println(leftMotor -> delay);
-      Serial.println(rightMotor -> delay);
+  //    Serial.println(leftMotor -> stepPeriod);
+  //    Serial.println(rightMotor -> stepPeriod);
     }
 }*/
 
@@ -193,14 +201,14 @@ void handling(MotorInfo *leftMotor, MotorInfo *rightMotor){
        message += "\n";
 
     server.send(200, "text/plain", message);
-    Serial.println(message);
+  //  Serial.println(message);
 
     StaticJsonBuffer<200> jsonBuffer;
     
     JsonObject& root = jsonBuffer.parseObject(server.arg("plain"));
 
     if(!root.success()){
-      Serial.println("parseObject() failed");
+//      Serial.println("parseObject() failed");
       return;
     }
     int whichMotor;
@@ -214,7 +222,7 @@ void handling(MotorInfo *leftMotor, MotorInfo *rightMotor){
         info->stepPeriod[(info->index+1)&1] = root["delay"];
         info->dir = root["direction"];
         info->updated = 1;
-        Serial.println(info->stepPeriod[(info->index+1)&1]);
+  //    Serial.println(info->stepPeriod[(info->index+1)&1]);
       }
     
    //MainInfo->Speed = root["offset"];
@@ -237,7 +245,6 @@ void loop() {
 
     motorStep(&leftMotorInfo);
     yield();
-    //Serial.println("got things to show");
     motorStep(&rightMotorInfo);
     yield();
     server.handleClient();
