@@ -15,7 +15,6 @@ ESP8266WebServer server(80);
 
 const char* ssid = "test123";
 const char* password =  "testing12345";
-int minVerbosity =0;
 
 #define updateIndex(x)    do {                              \
                     if((x)->updated == 1)                   \
@@ -23,7 +22,7 @@ int minVerbosity =0;
                        (x)->index  = ((x)->index +1)&1;     \
                        (x)->updated =0;                     \
                      }                                      \
-} while(0)
+} while(0)                                                  \
 
 typedef struct MotorInfo MotorInfo;
 struct  MotorInfo {
@@ -48,23 +47,20 @@ MotorInfo rightMotorInfo = {
 
 typedef struct AngleSpeed AngleSpeed;
 struct  AngleSpeed {
-  float Speed;
-  float Angle;
-  float previousAngle;
-  float previousSpeed; 
+  float Speed[2];
+  float Angle[2];
+  float previousAngle[2];
+  float previousSpeed[2]; 
   int index;
+  int updated;
 };
 
 AngleSpeed instruction ={
-  .Speed = 0.0 ,
-  .Angle = 90.00 ,
-  .previousAngle = 270,
-  .previousSpeed = 0,
-  .index = 0,
+
 };
 
 void setup() {
-//  Serial.begin(115200);
+ // Serial.begin(115200);
   pinMode(MOTOR_LEFT_STEP_PIN, OUTPUT); 
   pinMode(MOTOR_LEFT_DIR_PIN, OUTPUT);
   pinMode(MOTOR_RIGHT_STEP_PIN, OUTPUT); 
@@ -88,8 +84,15 @@ void setup() {
   leftMotorInfo.updated =0;
   leftMotorInfo.index =0;
 
+  instruction.Speed[0] = 0.0;
+  instruction.Angle[0] = 90.00;  
+  instruction.previousAngle[0] = 270;
+  instruction.previousSpeed[0] = 0.0 ;
+  instruction.index = 0;
+  instruction.updated = 0;
+
   WiFi.softAP(ssid, password,1,1);
-  handling(&leftMotorInfo , &rightMotorInfo);
+  handling(&instruction );
 //  handleUturn(&leftMotorInfo , &rightMotorInfo);
   server.begin();
   IPAddress myIP=WiFi.softAPIP();
@@ -108,17 +111,16 @@ int TimerExpired(unsigned long duration ,unsigned long previous )
 
 void motorStep(MotorInfo *motorInfo)
 {
-  unsigned long stepPeriod = getStepPeriod(motorInfo);
-  static int counter =0;
+  //unsigned long stepPeriod = getStepPeriod(motorInfo);
+  updateIndex(motorInfo);
   
-  if(TimerExpired(stepPeriod, motorInfo->prevTime))
+  if(TimerExpired(motorInfo->stepPeriod[motorInfo->index], motorInfo->prevTime))
   {
      digitalWrite(motorInfo->dirPin , motorInfo->dir);
      digitalWrite(motorInfo->motorControlPin,HIGH);
      digitalWrite(motorInfo->motorControlPin ,LOW);
      motorInfo->prevTime = micros();
      motorInfo-> steps ++ ;
-//     Serial.println(stepPeriod);
   } 
 }
 
@@ -137,59 +139,70 @@ void Uturn(MotorInfo *leftInfo , MotorInfo *rightInfo)
   }
 }
 
-void ForceStop(MotorInfo *leftInfo , MotorInfo *rightInfo)
-{
-  int index = getStepPeriod(leftInfo);
-  int index2 = getStepPeriod(rightInfo);
-  leftInfo-> stepPeriod[index] = -1;
-  rightInfo ->stepPeriod[index2] = -1;
-}
-
 int getStepPeriod(MotorInfo *info)
 {
   updateIndex(info);
   return info->stepPeriod[info->index];
 }
 
-void dump(char *str , int verbosity)
+void ForceStop(MotorInfo *leftMotor , MotorInfo *rightMotor)
 {
-  if(minVerbosity < verbosity)
-  {
-    Serial.println(str);
-    }  
+  //updateIndex(leftMotor);
+  //updateIndex(rightMotor);
+  leftMotor-> stepPeriod[leftMotor->index] = -1;
+  rightMotor ->stepPeriod[rightMotor->index] = -1;
 }
 
-/*void Calculation(AngleSpeed *MainInfo , MotorInfo *leftMotor , MotorInfo *rightMotor)
-{
+void Calculation(AngleSpeed *MainInfo , MotorInfo *leftMotor , MotorInfo *rightMotor){
 
-   if(MainInfo->Speed == 0)
+  //updateIndex(leftMotor);
+ // updateIndex(rightMotor);
+  updateIndex(MainInfo);
+ //  Serial.print("Angle at calculation =");
+//   Serial.println(MainInfo->Angle[MainInfo->index]);
+   
+   if(MainInfo->Speed[MainInfo->index] == 0)
     {
     ForceStop(leftMotor ,rightMotor);
     return;
     }
 
-   else if(MainInfo->previousSpeed != MainInfo->Speed || MainInfo->previousAngle != MainInfo->Angle)
+   else if(MainInfo->previousSpeed[MainInfo->index] != MainInfo->Speed[MainInfo->index] || MainInfo->previousAngle[MainInfo->index] != MainInfo->Angle[MainInfo->index])
     {
-      MainInfo->previousSpeed = MainInfo->Speed;
-      MainInfo->previousAngle = MainInfo->Angle;
+      MainInfo->previousSpeed[MainInfo->index] = MainInfo->Speed[MainInfo->index];
+      MainInfo->previousAngle[MainInfo->index] = MainInfo->Angle[MainInfo->index];
       int max_period;
-      
-      if( MainInfo->Angle > 180)
+      float tempAngle;
+
+      if(leftMotor->updated == 0 && rightMotor->updated == 0)
+       { 
+         
+      if( MainInfo->Angle[MainInfo->index] >= 180)
        {
-         MainInfo->Angle = 360 - MainInfo->Angle;
+         tempAngle = 360 - MainInfo->Angle[MainInfo->index];
          leftMotor->dir = MOTOR_LEFT_BACKWARD;
          rightMotor->dir = MOTOR_RIGHT_BACKWARD;
+     //    Serial.println("backward");
        }
-      max_period = (6000/MainInfo->Speed);
-      leftMotor->stepPeriod = max_period * ( MainInfo->Angle/180);
-      rightMotor->stepPeriod = max_period - leftMotor->stepPeriod;
-   
-  //    Serial.println(leftMotor -> stepPeriod);
-  //    Serial.println(rightMotor -> stepPeriod);
-    }
-}*/
+       else{
+        tempAngle = MainInfo->Angle[MainInfo->index];
+        leftMotor->dir = MOTOR_LEFT_FOWARD;
+        rightMotor->dir = MOTOR_RIGHT_FOWARD;
+    //    Serial.println("foward");
+        }
 
-void handling(MotorInfo *leftMotor, MotorInfo *rightMotor){
+            
+      max_period = (8000 / MainInfo->Speed[MainInfo->index]);
+      leftMotor->stepPeriod[(leftMotor->index +1)&1] = ( max_period * ( tempAngle/180) ) + 200 ;
+      rightMotor->stepPeriod[(rightMotor->index+1)&1] = ( max_period - ( max_period * ( tempAngle/180) ) ) + 200 ;
+      leftMotor->updated = 1;
+      rightMotor->updated = 1;
+      }
+      
+    }
+}
+
+void handling(AngleSpeed *info){
   server.on("/body", [=](){   
      if (server.hasArg("plain")== false){ //Check if body received
 
@@ -201,7 +214,7 @@ void handling(MotorInfo *leftMotor, MotorInfo *rightMotor){
        message += "\n";
 
     server.send(200, "text/plain", message);
-  //  Serial.println(message);
+ //   Serial.println(message);
 
     StaticJsonBuffer<200> jsonBuffer;
     
@@ -210,23 +223,13 @@ void handling(MotorInfo *leftMotor, MotorInfo *rightMotor){
     if(!root.success()){
 //      Serial.println("parseObject() failed");
       return;
-    }
-    int whichMotor;
-    whichMotor = root["whichmotor"];
-    MotorInfo *info;
-   
-     info = whichMotor == 1? leftMotor:rightMotor;
-   
+    }   
       if(info->updated == 0)
       {
-        info->stepPeriod[(info->index+1)&1] = root["delay"];
-        info->dir = root["direction"];
+        info->Speed[(info->index+1)&1] = root["offset"];
+        info->Angle[(info->index+1)&1] = root["degrees"];
         info->updated = 1;
-  //    Serial.println(info->stepPeriod[(info->index+1)&1]);
       }
-    
-   //MainInfo->Speed = root["offset"];
-   //MainInfo->Angle = root["degrees"];  
   });
 }  
 
@@ -239,7 +242,6 @@ void handleUturn(MotorInfo *leftMotor , MotorInfo *rightMotor){
   return;
 }
   
-
 // the loop function runs over and over again forever
 void loop() {
 
@@ -249,6 +251,6 @@ void loop() {
     yield();
     server.handleClient();
     yield();
- //   Calculation(&instruction , &leftMotorInfo ,&rightMotorInfo);
-   // yield();
+    Calculation(&instruction , &leftMotorInfo ,&rightMotorInfo);
+    yield();
 }
