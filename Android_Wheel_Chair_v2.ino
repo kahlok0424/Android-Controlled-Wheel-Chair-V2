@@ -17,6 +17,8 @@ ESP8266WebServer server(80);
 #define ENABLE                  LOW
 #define DISABLE                 HIGH
 
+#define _1u                     80
+
 const char* ssid = "test123";
 const char* password =  "testing12345";
 volatile unsigned long next;
@@ -130,7 +132,7 @@ void motorStep(MotorInfo *motorInfo)
 
 void rightMotorStep_test()
 {
-  next=next+800000;
+  next=next+rightMotorInfo.stepPeriod[0];
   timer0_write(next);
   //unsigned long stepPeriod = getStepPeriod(motorInfo);
   //updateIndex(motorInfo);
@@ -251,15 +253,23 @@ void handling(AngleSpeed *info , MotorInfo *leftMotor, MotorInfo *rightMotor){
        }*/
 
         if ( root.containsKey("whichmotor") && root.containsKey("delay") && root.containsKey("direction") ){
-          
+        unsigned long stepPeriod;
+        int direc; 
         int whichMotor;
-        whichMotor = root["whichmotor"];
-        MotorInfo *Stepinfo;
+       // whichMotor = root["whichmotor"];
+       // MotorInfo *Stepinfo;
    
-        Stepinfo = whichMotor == 1? leftMotor:rightMotor;
-        Stepinfo->stepPeriod[0] = root["delay"];
-        Stepinfo->dir = root["direction"];
+      //  Stepinfo = whichMotor == 1? leftMotor:rightMotor;
+        stepPeriod = root["delay"];
+        stepPeriod *= _1u;
+        direc = root["direction"];
         enableMotor();
+
+        noInterrupts();
+        rightMotorInfo.stepPeriod[0] = stepPeriod;
+        rightMotorInfo.dir = direc;
+        timer0_write(next);
+        interrupts();
         }
   });
 }  
