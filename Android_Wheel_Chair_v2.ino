@@ -19,6 +19,9 @@ ESP8266WebServer server(80);
 
 const char* ssid = "test123";
 const char* password =  "testing12345";
+volatile unsigned long next;
+volatile int previoustime =0;
+volatile int motorDelay =0;
 
 /*#define updateIndex(x)    do {                              \
                     if((x)->updated == 1)                   \
@@ -87,6 +90,13 @@ void setup() {
   //  handlingDebug(&leftMotorInfo , &rightMotorInfo);
   server.begin();
   IPAddress myIP=WiFi.softAPIP();
+  enableMotor();
+  noInterrupts();
+  timer0_isr_init();
+  timer0_attachInterrupt(rightMotorStep_test);
+  next=ESP.getCycleCount()+2000;
+  timer0_write(next);
+  interrupts();
 //  Serial.println(myIP);
 }
 
@@ -102,6 +112,8 @@ int TimerExpired(unsigned long duration ,unsigned long previous )
 
 void motorStep(MotorInfo *motorInfo)
 {
+  next=next+400000;
+  timer0_write(next);
   //unsigned long stepPeriod = getStepPeriod(motorInfo);
   //updateIndex(motorInfo);
   
@@ -110,10 +122,28 @@ void motorStep(MotorInfo *motorInfo)
      digitalWrite(motorInfo->dirPin , motorInfo->dir);
      digitalWrite(motorInfo->motorControlPin,HIGH);
      digitalWrite(motorInfo->motorControlPin ,LOW);
+     Serial.println(motorInfo->stepPeriod[0]);
      motorInfo->prevTime = micros();
      motorInfo-> steps ++ ;
   } 
 }
+
+void rightMotorStep_test()
+{
+  next=next+800000;
+  timer0_write(next);
+  //unsigned long stepPeriod = getStepPeriod(motorInfo);
+  //updateIndex(motorInfo);
+ 
+   digitalWrite(rightMotorInfo.dirPin ,0);
+   digitalWrite(rightMotorInfo.motorControlPin,HIGH);
+   digitalWrite(rightMotorInfo.motorControlPin,LOW);
+   //Serial.println(rightMotorInfo->stepPeriod[0]);
+     
+  Serial.println("hooray!!");
+  
+}
+
 
 void Uturn(MotorInfo *leftInfo , MotorInfo *rightInfo)
 {
@@ -156,11 +186,11 @@ void Calculation(AngleSpeed *MainInfo , MotorInfo *leftMotor , MotorInfo *rightM
 
     if(MainInfo->previousSpeed != MainInfo->Speed || MainInfo->previousAngle != MainInfo->Angle)
     { 
-      Serial.println("new speed and angle");
-      Serial.println("new speed and angle");
+     // Serial.println("new speed and angle");
+      //Serial.println("new speed and angle");
       //Serial.println(MainInfo->Speed);
       //Serial.println(MainInfo->Angle);
-      enableMotor();
+        enableMotor();
       
       MainInfo->previousSpeed = MainInfo->Speed;
       MainInfo->previousAngle = MainInfo->Angle;
@@ -180,20 +210,16 @@ void Calculation(AngleSpeed *MainInfo , MotorInfo *leftMotor , MotorInfo *rightM
          tempAngle = 360 - MainInfo->Angle;
          leftMotor->dir = MOTOR_LEFT_BACKWARD;
          rightMotor->dir = MOTOR_RIGHT_BACKWARD;
-     //    Serial.println("backward");
        }
        else{
         tempAngle = MainInfo->Angle;
         leftMotor->dir = MOTOR_LEFT_FOWARD;
         rightMotor->dir = MOTOR_RIGHT_FOWARD;
-    //    Serial.println("foward");
        }
             
       max_period = (80000 / MainInfo->Speed);
       leftMotor->stepPeriod[0] = ( max_period * ( tempAngle/180) ) + 200 ;
       rightMotor->stepPeriod[0] = ( max_period - ( max_period * ( tempAngle/180) ) ) + 200 ;
-      //leftMotor->motorEnable = ENABLE;
-      //rightMotor->motorEnable = ENABLE;
       }      
     }
 
@@ -219,10 +245,10 @@ void handling(AngleSpeed *info , MotorInfo *leftMotor, MotorInfo *rightMotor){
 //      Serial.println("parseObject() failed");
         return;
        }   
-       if ( root.containsKey("offset") && root.containsKey("degrees") ){
+       /*if ( root.containsKey("offset") && root.containsKey("degrees") ){
          info->Speed = root["offset"];
          info->Angle = root["degrees"];
-       }
+       }*/
 
         if ( root.containsKey("whichmotor") && root.containsKey("delay") && root.containsKey("direction") ){
           
@@ -279,13 +305,13 @@ void handleUturn(MotorInfo *leftMotor , MotorInfo *rightMotor){
   
 // the loop function runs over and over again forever
 void loop() {
-    motorStep(&leftMotorInfo);
+   // motorStep(&leftMotorInfo);
     yield();
-    motorStep(&rightMotorInfo);
+    //motorStep(&rightMotorInfo);
     yield();
     server.handleClient();
     yield();
-    Calculation(&instruction , &leftMotorInfo ,&rightMotorInfo);
+   // Calculation(&instruction , &leftMotorInfo ,&rightMotorInfo);
     yield();
     
 }
