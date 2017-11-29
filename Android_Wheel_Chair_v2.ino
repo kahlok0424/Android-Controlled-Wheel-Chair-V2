@@ -132,6 +132,7 @@ void motorStep(MotorInfo *motorInfo)
 
 void rightMotorStep_test()
 {
+  //next= rightMotorInfo.stepPeriod[0];
   next=next+rightMotorInfo.stepPeriod[0];
   timer0_write(next);
   //unsigned long stepPeriod = getStepPeriod(motorInfo);
