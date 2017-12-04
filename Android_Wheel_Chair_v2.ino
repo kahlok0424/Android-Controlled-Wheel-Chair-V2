@@ -35,6 +35,7 @@ volatile int motorDelay =0;
 typedef struct MotorInfo MotorInfo;
 struct  MotorInfo {
   unsigned long stepPeriod[2];
+  unsigned long reloadPeriod;
   int motorControlPin;
   int dirPin;
   int dir;  
@@ -156,13 +157,13 @@ void leftMotorStep_test()
      digitalWrite(leftMotorInfo.dirPin ,0);
      digitalWrite(leftMotorInfo.motorControlPin,HIGH);
      digitalWrite(leftMotorInfo.motorControlPin,LOW);
-     leftMotorInfo.stepPeriod[0] += 157894;
+     leftMotorInfo.stepPeriod[0] += leftMotorInfo.reloadPeriod; 
    }
    if(rightMotorInfo.stepPeriod[0] < 2000){
      digitalWrite(rightMotorInfo.dirPin ,0);
      digitalWrite(rightMotorInfo.motorControlPin,HIGH);
      digitalWrite(rightMotorInfo.motorControlPin,LOW);
-     rightMotorInfo.stepPeriod[0] += 39473;
+     rightMotorInfo.stepPeriod[0] += rightMotorInfo.reloadPeriod;
    }
    if(leftMotorInfo.stepPeriod[0] < rightMotorInfo.stepPeriod[0]){
     next=next+leftMotorInfo.stepPeriod[0];
@@ -292,19 +293,16 @@ void handling(AngleSpeed *info , MotorInfo *leftMotor, MotorInfo *rightMotor){
         int direc; 
         int whichMotor;
        // whichMotor = root["whichmotor"];
-       // MotorInfo *Stepinfo;
+        MotorInfo *Stepinfo;
    
-      //  Stepinfo = whichMotor == 1? leftMotor:rightMotor;
+        Stepinfo = whichMotor == 1? leftMotor:rightMotor;
         stepPeriod = root["delay"];
         stepPeriod *= _1u;
         direc = root["direction"];
         enableMotor();
 
-        noInterrupts();
-        rightMotorInfo.stepPeriod[0] = stepPeriod;
-        rightMotorInfo.dir = direc;
-        timer0_write(next);
-        interrupts();
+        Stepinfo->reloadPeriod = stepPeriod;
+        Stepinfo->dir = direc;
         }
   });
 }  
