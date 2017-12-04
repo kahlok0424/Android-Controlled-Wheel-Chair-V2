@@ -24,7 +24,6 @@ const char* password =  "testing12345";
 volatile unsigned long next;
 volatile int previoustime =0;
 volatile int motorDelay =0;
-
 /*#define updateIndex(x)    do {                              \
                     if((x)->updated == 1)                   \
                      {                                      \
@@ -73,13 +72,13 @@ void setup() {
   pinMode(MOTOR_RIGHT_STEP_PIN, OUTPUT); 
   pinMode(MOTOR_RIGHT_DIR_PIN, OUTPUT);
   pinMode(MOTOR_ENABLE_PIN, OUTPUT);
-  rightMotorInfo.stepPeriod[0] = -1;
+  rightMotorInfo.stepPeriod[0] = 39473;
   rightMotorInfo.motorControlPin = MOTOR_RIGHT_STEP_PIN;
   rightMotorInfo.dirPin = MOTOR_RIGHT_DIR_PIN;
   rightMotorInfo.dir = MOTOR_RIGHT_FOWARD;
   rightMotorInfo.steps = 0;
   rightMotorInfo.prevTime = 0;
-  leftMotorInfo.stepPeriod[0] = -1;
+  leftMotorInfo.stepPeriod[0] = 157894;
   leftMotorInfo.motorControlPin = MOTOR_LEFT_STEP_PIN;
   leftMotorInfo.dirPin = MOTOR_LEFT_DIR_PIN;
   leftMotorInfo.dir = MOTOR_LEFT_FOWARD;
@@ -89,13 +88,13 @@ void setup() {
   WiFi.softAP(ssid, password,1,1);
     handling(&instruction,&leftMotorInfo , &rightMotorInfo );
     handleUturn(&leftMotorInfo , &rightMotorInfo);
-  //  handlingDebug(&leftMotorInfo , &rightMotorInfo);
+  //handlingDebug(&leftMotorInfo , &rightMotorInfo);
   server.begin();
   IPAddress myIP=WiFi.softAPIP();
   enableMotor();
   noInterrupts();
   timer0_isr_init();
-  timer0_attachInterrupt(rightMotorStep_test);
+  timer0_attachInterrupt(leftMotorStep_test);
   next=ESP.getCycleCount()+2000;
   timer0_write(next);
   interrupts();
@@ -147,6 +146,39 @@ void rightMotorStep_test()
   
 }
 
+void leftMotorStep_test()
+{
+  //unsigned long stepPeriod = getStepPeriod(motorInfo);
+  //updateIndex(motorInfo);
+
+   //Serial.println(lefttMotorInfo->stepPeriod[0]);
+   if( leftMotorInfo.stepPeriod[0] < 2000){
+     digitalWrite(leftMotorInfo.dirPin ,0);
+     digitalWrite(leftMotorInfo.motorControlPin,HIGH);
+     digitalWrite(leftMotorInfo.motorControlPin,LOW);
+     leftMotorInfo.stepPeriod[0] += 157894;
+   }
+   if(rightMotorInfo.stepPeriod[0] < 2000){
+     digitalWrite(rightMotorInfo.dirPin ,0);
+     digitalWrite(rightMotorInfo.motorControlPin,HIGH);
+     digitalWrite(rightMotorInfo.motorControlPin,LOW);
+     rightMotorInfo.stepPeriod[0] += 39473;
+   }
+   if(leftMotorInfo.stepPeriod[0] < rightMotorInfo.stepPeriod[0]){
+    next=next+leftMotorInfo.stepPeriod[0];
+    timer0_write(next);
+    rightMotorInfo.stepPeriod[0] -= leftMotorInfo.stepPeriod[0];
+    leftMotorInfo.stepPeriod[0] = 0;
+   }
+   else{
+     next=next+rightMotorInfo.stepPeriod[0];
+     timer0_write(next);
+     leftMotorInfo.stepPeriod[0] -= rightMotorInfo.stepPeriod[0];
+     rightMotorInfo.stepPeriod[0] = 0;
+   }
+
+}
+
 
 void Uturn(MotorInfo *leftInfo , MotorInfo *rightInfo)
 {
@@ -181,6 +213,8 @@ void enableMotor(){
 }
 
 void disableMotor(){
+  digitalWrite(rightMotorInfo.motorControlPin,LOW);
+  digitalWrite(leftMotorInfo.motorControlPin,LOW);
   digitalWrite(MOTOR_ENABLE_PIN ,DISABLE);
   //Serial.println("Disable motor");
 }
