@@ -4,6 +4,7 @@
 
 ESP8266WebServer server(80);
 // define pin
+#define DEVELOP
 #define MOTOR_ENABLE_PIN        10
 #define MOTOR_LEFT_STEP_PIN     4
 #define MOTOR_LEFT_DIR_PIN      5
@@ -18,20 +19,24 @@ ESP8266WebServer server(80);
 #define DISABLE                 HIGH
 
 #define _1u                     80
-
+#define IS_MOTOR_ACTIVE(x)      ((x).reloadPeriod != -1)
+  
 const char* ssid = "test123";
 const char* password =  "testing12345";
 volatile unsigned long next;
 volatile int previoustime =0;
 volatile int motorDelay =0;
+volatile int isTimerOn = 0;
 /*#define updateIndex(x)    do {                              \
                     if((x)->updated == 1)                   \
                      {                                      \
                        (x)->index  = ((x)->index +1)&1;     \
                        (x)->updated =0;                     \
                      }                                      \
-} while(0)  */                                                \
+} while(0)  */                                                
 
+
+//void handleUturn(MotorInfo *leftMotor , MotorInfo *rightMotor);
 typedef struct MotorInfo MotorInfo;
 struct  MotorInfo {
   unsigned long stepPeriod[2];
@@ -73,13 +78,15 @@ void setup() {
   pinMode(MOTOR_RIGHT_STEP_PIN, OUTPUT); 
   pinMode(MOTOR_RIGHT_DIR_PIN, OUTPUT);
   pinMode(MOTOR_ENABLE_PIN, OUTPUT);
-  rightMotorInfo.stepPeriod[0] = 39473;
+  rightMotorInfo.stepPeriod[0] = 0;
+  rightMotorInfo.reloadPeriod = -1;
   rightMotorInfo.motorControlPin = MOTOR_RIGHT_STEP_PIN;
   rightMotorInfo.dirPin = MOTOR_RIGHT_DIR_PIN;
   rightMotorInfo.dir = MOTOR_RIGHT_FOWARD;
   rightMotorInfo.steps = 0;
   rightMotorInfo.prevTime = 0;
-  leftMotorInfo.stepPeriod[0] = 157894;
+  leftMotorInfo.stepPeriod[0] = 0;
+  leftMotorInfo.reloadPeriod = -1;
   leftMotorInfo.motorControlPin = MOTOR_LEFT_STEP_PIN;
   leftMotorInfo.dirPin = MOTOR_LEFT_DIR_PIN;
   leftMotorInfo.dir = MOTOR_LEFT_FOWARD;
@@ -87,17 +94,15 @@ void setup() {
   leftMotorInfo.prevTime = 0;
   disableMotor();
   WiFi.softAP(ssid, password,1,1);
-    handling(&instruction,&leftMotorInfo , &rightMotorInfo );
-    handleUturn(&leftMotorInfo , &rightMotorInfo);
+  handling(&instruction,&leftMotorInfo , &rightMotorInfo );
+//  handleUturn(&leftMotorInfo , &rightMotorInfo);
   //handlingDebug(&leftMotorInfo , &rightMotorInfo);
   server.begin();
   IPAddress myIP=WiFi.softAPIP();
   enableMotor();
   noInterrupts();
   timer0_isr_init();
-  timer0_attachInterrupt(leftMotorStep_test);
-  next=ESP.getCycleCount()+2000;
-  timer0_write(next);
+  
   interrupts();
 //  Serial.println(myIP);
 }
@@ -130,21 +135,24 @@ void motorStep(MotorInfo *motorInfo)
   } 
 }
 
-void rightMotorStep_test()
-{
-  //next= rightMotorInfo.stepPeriod[0];
-  next=next+rightMotorInfo.stepPeriod[0];
-  timer0_write(next);
-  //unsigned long stepPeriod = getStepPeriod(motorInfo);
-  //updateIndex(motorInfo);
- 
-   digitalWrite(rightMotorInfo.dirPin ,0);
-   digitalWrite(rightMotorInfo.motorControlPin,HIGH);
-   digitalWrite(rightMotorInfo.motorControlPin,LOW);
-   //Serial.println(rightMotorInfo->stepPeriod[0]);
-     
-  Serial.println("hooray!!");
-  
+
+void pulsePin(int pin){
+   digitalWrite(pin,HIGH);
+   digitalWrite(pin,LOW);
+}
+
+void pulseMotorOnTimeout(MotorInfo *motor){
+//   if( motor->stepPeriod[0] < 2000 && motor->reloadPeriod != 0){
+//     pulsePin(motor->motorControlPin);
+//     motor->stepPeriod[0] += motor->reloadPeriod; 
+//   }
+ if( motor->stepPeriod[0] < 2000 && motor->reloadPeriod != 0){
+  if(motor == &leftMotorInfo)
+    pulsePin(MOTOR_LEFT_STEP_PIN);
+   else
+    pulsePin(MOTOR_RIGHT_STEP_PIN);
+   motor->stepPeriod[0] += motor->reloadPeriod; 
+  }
 }
 
 void leftMotorStep_test()
@@ -153,30 +161,60 @@ void leftMotorStep_test()
   //updateIndex(motorInfo);
 
    //Serial.println(lefttMotorInfo->stepPeriod[0]);
-   if( leftMotorInfo.stepPeriod[0] < 2000){
-     digitalWrite(leftMotorInfo.dirPin ,0);
-     digitalWrite(leftMotorInfo.motorControlPin,HIGH);
-     digitalWrite(leftMotorInfo.motorControlPin,LOW);
+   
+   /*if( leftMotorInfo.stepPeriod[0] < 2000){
+     pulsePin(MOTOR_LEFT_STEP_PIN);
      leftMotorInfo.stepPeriod[0] += leftMotorInfo.reloadPeriod; 
    }
    if(rightMotorInfo.stepPeriod[0] < 2000){
-     digitalWrite(rightMotorInfo.dirPin ,0);
-     digitalWrite(rightMotorInfo.motorControlPin,HIGH);
-     digitalWrite(rightMotorInfo.motorControlPin,LOW);
+     pulsePin(MOTOR_RIGHT_STEP_PIN);
      rightMotorInfo.stepPeriod[0] += rightMotorInfo.reloadPeriod;
-   }
+   }*/
+
+   //-------------------
+   /*pulseMotorOnTimeout(&leftMotorInfo);
+   pulseMotorOnTimeout(&rightMotorInfo);
+   
    if(leftMotorInfo.stepPeriod[0] < rightMotorInfo.stepPeriod[0]){
-    next=next+leftMotorInfo.stepPeriod[0];
+    next=ESP.getCycleCount()+leftMotorInfo.stepPeriod[0];
     timer0_write(next);
     rightMotorInfo.stepPeriod[0] -= leftMotorInfo.stepPeriod[0];
     leftMotorInfo.stepPeriod[0] = 0;
    }
    else{
-     next=next+rightMotorInfo.stepPeriod[0];
+     next=ESP.getCycleCount()+rightMotorInfo.stepPeriod[0];
      timer0_write(next);
      leftMotorInfo.stepPeriod[0] -= rightMotorInfo.stepPeriod[0];
      rightMotorInfo.stepPeriod[0] = 0;
+   }*/
+  int numOfActive = 0;
+  unsigned long timeout;
+  pulseMotorOnTimeout(&leftMotorInfo);
+  pulseMotorOnTimeout(&rightMotorInfo);
+  timeout = leftMotorInfo.stepPeriod[0];
+  timeout = timeout <= rightMotorInfo.stepPeriod[0] ? timeout : rightMotorInfo.stepPeriod[0];
+//  printf("timeout = %d\n", timeout);
+  if(IS_MOTOR_ACTIVE(leftMotorInfo)){
+   leftMotorInfo.stepPeriod[0] -= timeout;
+   numOfActive++;
+  }
+  if(IS_MOTOR_ACTIVE(rightMotorInfo)){
+   rightMotorInfo.stepPeriod[0] -= timeout;
+   numOfActive++;
+  }
+  if(numOfActive > 0)
+    timer0_write(ESP.getCycleCount() + timeout);
+   else{
+    printf("detach called");
+    timer0_detachInterrupt();
+    isTimerOn = 0;
    }
+   
+
+  /*next=ESP.getCycleCount()+79000;
+  timer0_write(next);
+  pulsePin(MOTOR_RIGHT_STEP_PIN);*/
+   
 
 }
 
@@ -273,7 +311,7 @@ void handling(AngleSpeed *info , MotorInfo *leftMotor, MotorInfo *rightMotor){
        message += "\n";
 
     server.send(200, "text/plain", message);
- //   Serial.println(message);
+    Serial.println("handling!");
 
     StaticJsonBuffer<200> jsonBuffer;
     
@@ -287,25 +325,48 @@ void handling(AngleSpeed *info , MotorInfo *leftMotor, MotorInfo *rightMotor){
          info->Speed = root["offset"];
          info->Angle = root["degrees"];
        }*/
-
+        #ifdef DEVELOP
         if ( root.containsKey("whichmotor") && root.containsKey("delay") && root.containsKey("direction") ){
         unsigned long stepPeriod;
         int direc; 
         int whichMotor;
-       // whichMotor = root["whichmotor"];
+        whichMotor = root["whichmotor"];
         MotorInfo *Stepinfo;
-   
+        Serial.println("Entered the wifi function");
         Stepinfo = whichMotor == 1? leftMotor:rightMotor;
         stepPeriod = root["delay"];
-        stepPeriod *= _1u;
+        //stepPeriod *= _1u;
         direc = root["direction"];
         enableMotor();
-
+        if(stepPeriod < 2000){
+          stepPeriod = 2000;
+        }
         Stepinfo->reloadPeriod = stepPeriod;
         Stepinfo->dir = direc;
+        Serial.print("right reload period ");
+        Serial.println(rightMotor->reloadPeriod);
+        Serial.print("left reload period ");
+        Serial.println(leftMotor->reloadPeriod);
+        Serial.print("left step period ");
+        Serial.println(leftMotor->stepPeriod[0]);
+        Serial.print("right step period ");
+        Serial.println(rightMotor->stepPeriod[0]);
+
+        if(!isTimerOn){
+          timer0_attachInterrupt(leftMotorStep_test);
+          Serial.println("timer on!");
+          isTimerOn = 1;
+          noInterrupts();
+          rightMotor->stepPeriod[0] = 0;
+          leftMotor->stepPeriod[0] = 0;
+          next=ESP.getCycleCount() + 2000;
+          timer0_write(next);
+          interrupts(); 
         }
+       }
+       #endif
   });
-}  
+}
 
 void handleUturn(MotorInfo *leftMotor , MotorInfo *rightMotor){
    server.on("/uturn", [=](){
